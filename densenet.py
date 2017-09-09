@@ -6,10 +6,10 @@ class DenseNet(BaseModel):
     def __init__(self, config_file, **kwargs):
         super(DenseNet, self).__init__(config_file, **kwargs)
 
-        self.input_shape = (None, self.config['data']['input_shape'][2], self.config['data']['input_shape'][0],
-                            self.config['data']['input_shape'][1])
-        self.output_shape = self.config['data']['output_shape']
-        self.augmentation = self.config['data']['augmentation']
+        self.input_shape = (None, self.config['model']['input_shape'][2], self.config['model']['input_shape'][0],
+                            self.config['model']['input_shape'][1])
+        self.output_shape = self.config['model']['output_shape']
+        self.augmentation = self.config['model']['augmentation']
 
         self.growth_rate = kwargs.get('growth_rate', 12)
         self.first_output = kwargs.get('first_output', 16)
@@ -36,8 +36,8 @@ class DenseNet(BaseModel):
         self.model.append(FullyConnectedLayer(self.model[-1].get_output_shape(True)[1], self.output_shape,
                                               He_init='normal', He_init_gain='softmax', layer_name='softmax',
                                               activation='softmax', target='dev1'))
-        self.params = [p for layer in self.model for p in layer.params]
-        self.regularizable = [p for layer in self.model for p in layer.regularizable]
+        self.params = super(DenseNet, self).get_params()
+        self.regularizable = super(DenseNet, self).get_regularizable()
 
     def inference(self, input, training=False):
         super(DenseNet, self).set_training_status(training)
