@@ -23,12 +23,12 @@ def train(config_file, **kwargs):
     placeholder_lr = theano.shared(np.cast[theano.config.floatX](net.learning_rate), 'learning_rate')
 
     p_y_given_x_train = net.inference(x, True)
-    cost = net.build_cost(p_y_given_x_train, y, **{'params': net.params})
-    updates = net.build_updates(cost, net.params, **{'learning_rage': placeholder_lr})
+    cost = net.build_cost(p_y_given_x_train, y, **{'params': net.regularizable})
+    updates = net.build_updates(cost, net.trainable, **{'learning_rate': placeholder_lr})
     train_network = net.compile([], cost, updates=updates, givens={x: placeholder_x, y: placeholder_y}, name='train_densenet', allow_input_downcast=True)
 
     p_y_given_x_test = net.inference(x)
-    cost = net.build_cost(p_y_given_x_test, y, **{'params': net.params})
+    cost = net.build_cost(p_y_given_x_test, y, **{'params': net.regularizable})
     accuracy = (1. - metrics.MeanClassificationErrors(p_y_given_x_test, y)) * 100.
     test_network = net.compile([], [cost, accuracy], givens={x: placeholder_x, y: placeholder_y}, name='test_densenet', allow_input_downcast=True)
 
@@ -36,7 +36,7 @@ def train(config_file, **kwargs):
     epoch = 0
     vote_to_terminate = 0
     num_training_batches = training_data[0].shape[0] / net.batch_size
-    num_validation_batches = validation_data[0].shape[0] / net.batch_size
+    num_validation_batches = validation_data[0].shape[0] / net.validation_batch_size
     best_accuracy = 0.
     best_epoch = 0
     training_cost_to_plot = []
@@ -45,9 +45,9 @@ def train(config_file, **kwargs):
     start_training_time = time.time()
     while epoch < net.n_epochs and not early_stopping:
         epoch += 1
-        # if epoch == (net.n_epochs // 2) or epoch == (net.n_epochs * 3 // 4):
-        #     placeholder_lr.set_value(placeholder_lr.get_value() * 0.1)
-        #     print '\tlearning rate decreased to %.10f' % placeholder_lr.get_value()
+        if epoch == (net.n_epochs // 2) or epoch == (net.n_epochs * 3 // 4):
+            placeholder_lr.set_value(placeholder_lr.get_value() * np.float32(0.1))
+            print '\tlearning rate decreased to %.10f' % placeholder_lr.get_value()
         training_cost = 0.
         start_epoch_time = time.time()
         batches = utils.generator(training_data, net.batch_size)
@@ -60,17 +60,17 @@ def train(config_file, **kwargs):
             iteration = (epoch - 1.) * num_training_batches + idx + 1
 
             x, y = b
-            utils.update_input((x.transpose(0, 3, 1, 2), y), (placeholder_x, placeholder_y))
+            utils.update_input((x, y), (placeholder_x, placeholder_y))
             training_cost += train_network()
             if np.isnan(training_cost):
                 raise ValueError('Training failed due to NaN cost')
 
-            if iteration % num_training_batches == 0:
-                batch_valid = utils.generator(validation_data, net.batch_size)
+            if iteration % net.validation_frequency == 0:
+                batch_valid = utils.generator(validation_data, net.validation_batch_size)
                 validation_cost = 0.
                 validation_accuracy = 0.
                 for b_valid in batch_valid:
-                    utils.update_input((b_valid[0].transpose(0, 3, 1, 2), b_valid[1]), (placeholder_x, placeholder_y))
+                    utils.update_input((b_valid[0], b_valid[1]), (placeholder_x, placeholder_y))
                     c, a = test_network()
                     validation_cost += c
                     validation_accuracy += a

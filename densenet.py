@@ -36,8 +36,9 @@ class DenseNet(BaseModel):
         self.model.append(FullyConnectedLayer(self.model[-1].get_output_shape(True)[1], self.output_shape,
                                               He_init='normal', He_init_gain='softmax', layer_name='softmax',
                                               activation='softmax', target='dev1'))
-        self.params = super(DenseNet, self).get_params()
-        self.regularizable = super(DenseNet, self).get_regularizable()
+        super(DenseNet, self).get_all_params()
+        super(DenseNet, self).get_trainable()
+        super(DenseNet, self).get_regularizable()
 
     def inference(self, input, training=False):
         super(DenseNet, self).set_training_status(training)
