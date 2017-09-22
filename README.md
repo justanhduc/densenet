@@ -1,5 +1,6 @@
 # densenet
 A Theano implementation of [DenseNet](https://arxiv.org/abs/1608.06993)
+
 This implementation is writted following the [Lasagne implementation](https://github.com/Lasagne/Recipes/tree/master/papers/densenet)
 
 ## Requirements
@@ -11,3 +12,6 @@ This implementation is writted following the [Lasagne implementation](https://gi
 ```
 python train_densenet.py
 ```
+
+## Credits
+[Lasagne](http://lasagne.readthedocs.io/en/latest/)
