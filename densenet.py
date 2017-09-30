@@ -11,11 +11,11 @@ class DenseNet(BaseModel):
         self.output_shape = self.config['model']['output_shape']
         self.augmentation = self.config['model']['augmentation']
 
-        self.growth_rate = kwargs.get('growth_rate', 12)
-        self.first_output = kwargs.get('first_output', 16)
-        self.num_blocks = kwargs.get('num_blocks', 3)
-        self.depth = kwargs.get('depth', 40)
-        self.dropout = kwargs.get('dropout', 0)
+        self.growth_rate = self.config['model']['growth_rate']
+        self.first_output = self.config['model']['first_output']
+        self.num_blocks = self.config['model']['num_blocks']
+        self.depth = self.config['model']['depth']
+        self.dropout = self.config['model']['dropout']
 
         self.model.append(ConvolutionalLayer(self.input_shape, (self.first_output, self.input_shape[1], 3, 3),
                                              He_init='normal', He_init_gain='relu', activation='linear',
