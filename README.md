@@ -11,7 +11,7 @@ This implementation is writted following the [Lasagne implementation](https://gi
 ## Result
 The model is trained using the scheme described in the paper. The Multinoulli cross-entropy loss function is optimized using SGD with Nesterov Momentum. Learning rate is 1e-1 and decreased by 10 after 50% and 75% of the training. Using that scheme, the following training curve can be obtained
 
-[training curve](https://github.com/justanhduc/densenet/blob/master/training_curve.png?raw=true)
+[training curve](https://github.com/justanhduc/densenet/blob/master/training_curve.png)
 
 ## Usages
 To train DenseNet using the current training scheme
