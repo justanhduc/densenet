@@ -1,6 +1,20 @@
 from neuralnet.layers import ConvolutionalLayer, BatchNormLayer, FullyConnectedLayer, DenseBlock, PoolingLayer
-
 from neuralnet import Model
+from neuralnet.utils import DataManager
+from neuralnet import read_data
+
+import logging
+import numpy as np
+logging.getLogger().setLevel(logging.INFO)
+try:
+    import cupy as cp
+    xp = cp
+    CUPY_AVAILABLE = True
+    logging.info('CUPY available')
+except ImportError:
+    CUPY_AVAILABLE = False
+    logging.info('No CUPY found')
+    xp = np
 
 
 class DenseNet(Model):
@@ -28,7 +42,7 @@ class DenseNet(Model):
                                          layer_name='dense_block_%d' % b))
             if b < self.num_blocks - 1:
                 self.model.append(DenseBlock(self.model[-1].output_shape, True, None, None, self.dropout,
-                                             'dense_block_%d' % b))
+                                             layer_name='dense_block_%d' % b))
 
         self.model.append(BatchNormLayer(self.model[-1].output_shape, layer_name='post_bn'))
         shape = self.model[-1].output_shape
@@ -44,3 +58,60 @@ class DenseNet(Model):
     def inference(self, input, training=False):
         super(DenseNet, self).set_training_status(training)
         return super(DenseNet, self).inference(input)
+
+
+class DataManager2(DataManager):
+    def __init__(self, config_file, placeholders):
+        super(DataManager2, self).__init__(config_file, placeholders)
+
+    def load_data(self):
+        X_train, y_train, _, _ = read_data.load_dataset(self.path)
+        X_val, y_val = X_train[-5000:], y_train[-5000:]
+        X_train, y_train = X_train[:-5000], y_train[:-5000]
+        self.training_set = (X_train, y_train)
+        self.testing_set = (X_val, y_val)
+        self.num_train_data = X_train.shape[0]
+        self.num_test_data = X_val.shape[0]
+
+    def augment_minibatches(self, minibatches, *args):
+        """
+        Randomly augments images by horizontal flipping with a probability of
+        `flip` and random translation of up to `trans` pixels in both directions.
+        """
+        flip, trans = args
+        for batch in minibatches:
+            if self.no_target:
+                inputs = batch
+            else:
+                inputs, targets = batch
+
+            batchsize, c, h, w = inputs.shape
+            if flip:
+                coins = np.random.rand(batchsize) < flip
+                inputs = [inp[:, :, ::-1] if coin else inp
+                          for inp, coin in zip(inputs, coins)]
+                if not trans:
+                    inputs = np.asarray(inputs)
+            outputs = inputs
+            if trans:
+                outputs = np.empty((batchsize, c, h, w), inputs[0].dtype)
+                shifts = np.random.randint(-trans, trans, (batchsize, 2))
+                for outp, inp, (x, y) in zip(outputs, inputs, shifts):
+                    if x > 0:
+                        outp[:, :x] = 0
+                        outp = outp[:, x:]
+                        inp = inp[:, :-x]
+                    elif x < 0:
+                        outp[:, x:] = 0
+                        outp = outp[:, :x]
+                        inp = inp[:, -x:]
+                    if y > 0:
+                        outp[:, :, :y] = 0
+                        outp = outp[:, :, y:]
+                        inp = inp[:, :, :-y]
+                    elif y < 0:
+                        outp[:, :, y:] = 0
+                        outp = outp[:, :, :y]
+                        inp = inp[:, :, -y:]
+                    outp[:] = inp
+            yield outputs, targets if not self.no_target else outputs

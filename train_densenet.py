@@ -1,18 +1,14 @@
-import time
 import numpy as np
 import theano
-from matplotlib import pyplot as plt
 from theano import tensor as T
 
-from neuralnet import utils
 from neuralnet import metrics
+from neuralnet import monitor
 from densenet import DenseNet
+from densenet import DataManager2
 
 
 def train(config_file, **kwargs):
-    training_data = kwargs.get('training_data')
-    validation_data = kwargs.get('validation_data')
-
     x = T.tensor4('input', theano.config.floatX)
     y = T.ivector('output')
 
@@ -32,109 +28,84 @@ def train(config_file, **kwargs):
     accuracy = (1. - metrics.MeanClassificationErrors(p_y_given_x_test, y)) * 100.
     test_network = net.compile([], [cost, accuracy], givens={x: placeholder_x, y: placeholder_y}, name='test_densenet', allow_input_downcast=True)
 
+    data_manager = DataManager2(config_file, (placeholder_x, placeholder_y))
+    mon = monitor.Monitor(config_file)
     epoch = 0
     vote_to_terminate = 0
-    num_training_batches = training_data[0].shape[0] // net.batch_size
-    num_validation_batches = validation_data[0].shape[0] // net.validation_batch_size
+    num_training_batches = data_manager.num_train_data // net.batch_size
+    num_validation_batches = data_manager.num_test_data // net.validation_batch_size
     best_accuracy = 0.
     best_epoch = 0
-    if net.display_cost:
-        training_cost_to_plot = []
-        validation_cost_to_plot = []
     print('Training...')
-
-    data_manager_train = utils.DataManager(training_data, net.batch_size, (placeholder_x, placeholder_y), True, False,
-                                           net.augmentation)
-    data_manager_valid = utils.DataManager(validation_data, net.validation_batch_size, (placeholder_x, placeholder_y))
-    start_training_time = time.time()
     while epoch < net.n_epochs:
         epoch += 1
         if epoch == (net.n_epochs // 2) or epoch == (net.n_epochs * 3 // 4):
             placeholder_lr.set_value(placeholder_lr.get_value() * np.float32(0.1))
-            print('\tlearning rate decreased to %.10f' % placeholder_lr.get_value())
-        training_cost = 0.
-        start_epoch_time = time.time()
-        batches = data_manager_train.get_batches(epoch, net.n_epochs)
+            print('Learning rate decreased to %.10f' % placeholder_lr.get_value())
+
+        batches = data_manager.get_batches(epoch, net.n_epochs, 'train', 0.5, 4)
         idx = 0
         for b in batches:
             iteration = (epoch - 1.) * num_training_batches + idx + 1
 
             x, y = b
-            data_manager_train.update_input((x, y))
-            training_cost += train_network()
+            data_manager.update_input((x, y))
+            training_cost = train_network()
             if np.isnan(training_cost):
                 raise ValueError('Training failed due to NaN cost')
+            mon.plot('training cost', training_cost)
 
             if iteration % net.validation_frequency == 0:
-                batch_valid = data_manager_valid.get_batches()
+                batch_valid = data_manager.get_batches(stage='test')
                 validation_cost = 0.
                 validation_accuracy = 0.
                 for b_valid in batch_valid:
-                    data_manager_valid.update_input((b_valid[0], b_valid[1]))
+                    data_manager.update_input((b_valid[0], b_valid[1]))
                     c, a = test_network()
                     validation_cost += c
                     validation_accuracy += a
+                    mon.plot('validation cost', c)
+                    mon.plot('validation accuracy', a)
                 validation_cost /= num_validation_batches
                 validation_accuracy /= num_validation_batches
-                print('\tvalidation cost: %.4f' % validation_cost)
-                print('\tvalidation accuracy: %.4f' % validation_accuracy)
+
                 if validation_accuracy > best_accuracy:
                     best_epoch = epoch
                     best_accuracy = validation_accuracy
                     vote_to_terminate = 0
-                    print('\tbest validation accuracy: %.4f' % best_accuracy)
                     if net.extract_params:
                         net.save_params()
                 else:
                     vote_to_terminate += 1
-
-                if net.display_cost:
-                    training_cost_to_plot.append(training_cost / (idx + 1))
-                    validation_cost_to_plot.append(validation_cost)
-                    plt.clf()
-                    plt.plot(training_cost_to_plot)
-                    plt.plot(validation_cost_to_plot)
-                    plt.show(block=False)
-                    plt.pause(1e-5)
+                mon.flush()
             idx += 1
-        training_cost /= num_training_batches
-        print('\tepoch %d took %.2f mins' % (epoch, (time.time() - start_epoch_time) / 60.))
-        print('\ttraining cost: %.4f' % training_cost)
-    if net.display_cost:
-        plt.savefig('%s/training_curve.png' % net.save_path)
-    print('Best validation accuracy: %.4f' % best_accuracy)
+            mon.tick()
+    print('Best validation accuracy: %.4f at epoch %d' % (best_accuracy, best_epoch))
 
     print('Training the network with all available data...')
-    data = (np.concatenate((training_data[0], validation_data[0])), np.concatenate((training_data[1], validation_data[1])))
-    num_training_batches = data[0].shape[0] / net.batch_size
+    data = (np.concatenate((data_manager.training_set[0], data_manager.testing_set[0])),
+            np.concatenate((data_manager.training_set[1], data_manager.testing_set[1])))
+    data_manager.training_set = data
+    data_manager.num_train_data = data[0].shape[0] / net.batch_size
 
     net.reset()
     placeholder_lr.set_value(np.cast[theano.config.floatX](net.learning_rate))
 
-    data_manager_train = utils.DataManager(data, net.batch_size, (placeholder_x, placeholder_y), True, False,
-                                           net.augmentation)
     for i in range(best_epoch):
         print('Epoch %d starts...' % (i + 1))
         if i + 1 == (net.n_epochs // 2) or i + 1 == (net.n_epochs * 3 // 4):
             placeholder_lr.set_value(placeholder_lr.get_value() * np.float32(0.1))
-            print('\tlearning rate decreased to %.10f' % placeholder_lr.get_value())
-        batches = data_manager_train.get_batches(i + 1, net.n_epochs)
+            print('Learning rate decreased to %.10f' % placeholder_lr.get_value())
+        batches = data_manager.get_batches(i + 1, net.n_epochs, 0.5, 4)
         training_cost = 0.
         for b in batches:
             x, y = b
-            data_manager_train.update_input((x, y))
+            data_manager.update_input((x, y))
             training_cost += train_network()
         training_cost /= num_training_batches
         print('\ttraining cost: %.4f' % training_cost)
     net.save_params()
-    print('Training ended after %.2f hours' % ((time.time() - start_training_time) / 3600.))
 
 
 if __name__ == '__main__':
-    from neuralnet import read_data
-
-    X_train, y_train, _, _ = read_data.load_dataset('C:\\Users\just.anhduc\Downloads')
-    X_val, y_val = X_train[-5000:], y_train[-5000:]
-    X_train, y_train = X_train[:-5000], y_train[:-5000]
-    kwargs = {'training_data': (X_train, y_train), 'validation_data': (X_val, y_val)}
-    train('densenet.config', **kwargs)
+    train('densenet.config')
