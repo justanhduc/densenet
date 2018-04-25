@@ -4,6 +4,7 @@ from theano import tensor as T
 
 from neuralnet import utils
 from neuralnet import metrics
+from neuralnet import read_data
 from densenet import DenseNet
 
 
@@ -21,17 +22,21 @@ def test_batches_with_labels(config_file, **kwargs):
 
     p_y_given_x_test = net.inference(x)
     cost = net.build_cost(p_y_given_x_test, y, **{'params': net.regularizable})
-    accuracy = (1. - metrics.MeanClassificationErrors(p_y_given_x_test, y)) * 100.
-    test_network = net.compile([], [cost, accuracy], givens={x: placeholder_x, y: placeholder_y}, name='test_densenet', allow_input_downcast=True)
+    accuracy = (1. - metrics.mean_classification_error(p_y_given_x_test, y)) * 100.
+    test_network = net.compile([], [cost, accuracy], givens={x: placeholder_x, y: placeholder_y}, name='test_densenet',
+                               allow_input_downcast=True)
 
     num_test_batches = test_data[0].shape[0] // net.testing_batch_size
     cost = 0.
     accuracy = 0.
-    data_manager_test = utils.DataManager(test_data, net.testing_batch_size, (placeholder_x, placeholder_y))
-    batches = data_manager_test.get_batches()
+    dm = utils.DataManager(config_file, (placeholder_x, placeholder_y))
+    dm.testing_set = test_data
+    dm.num_test_data = test_data[0].shape[0]
+    dm.batch_size = net.testing_batch_size
+    batches = dm.get_batches(training=False)
     print('Testing %d batches...' % num_test_batches)
     for x, y in batches:
-        data_manager_test.update_input((x, y))
+        dm.update_input((x, y))
         c, a = test_network()
         cost += c
         accuracy += a
@@ -55,8 +60,6 @@ def test_image(config_file, image):
 
 
 if __name__ == '__main__':
-    from neuralnet import read_data
-
     _, _, X_test, y_test = read_data.load_dataset('C:\\Users\just.anhduc\Downloads')
     kwargs = {'testing_data': (X_test, y_test)}
     test_batches_with_labels('densenet.config', **kwargs)

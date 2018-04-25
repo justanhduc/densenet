@@ -1,20 +1,10 @@
-from neuralnet.layers import ConvolutionalLayer, BatchNormLayer, FullyConnectedLayer, DenseBlock, PoolingLayer
+from neuralnet.layers import ConvolutionalLayer, BatchNormLayer, FullyConnectedLayer, DenseBlock, PoolingLayer, \
+    DecorrBatchNormLayer, ActivationLayer
 from neuralnet import Model
 from neuralnet.utils import DataManager
 from neuralnet import read_data
 
-import logging
 import numpy as np
-logging.getLogger().setLevel(logging.INFO)
-try:
-    import cupy as cp
-    xp = cp
-    CUPY_AVAILABLE = True
-    logging.info('CUPY available')
-except ImportError:
-    CUPY_AVAILABLE = False
-    logging.info('No CUPY found')
-    xp = np
 
 
 class DenseNet(Model):
@@ -32,37 +22,37 @@ class DenseNet(Model):
         self.depth = self.config['model']['depth']
         self.dropout = self.config['model']['dropout']
 
-        self.model.append(ConvolutionalLayer(self.input_shape, (self.first_output, self.input_shape[1], 3, 3),
-                                             He_init='normal', He_init_gain='relu', activation='linear',
-                                             layer_name='pre_conv'))
+        self.model.append(ConvolutionalLayer(self.input_shape, self.first_output, 3, He_init='normal', He_init_gain='relu',
+                                             activation='linear', layer_name='pre_conv'))
         n = (self.depth - 1) // self.num_blocks
         for b in range(self.num_blocks):
-            self.model.append(DenseBlock(self.model[-1].output_shape, num_conv_layer=n - 1,
-                                         growth_rate=self.growth_rate, dropout=self.dropout,
-                                         layer_name='dense_block_%d' % b))
+            self.model.append(DenseBlock(self.model.output_shape, num_conv_layer=n - 1, growth_rate=self.growth_rate,
+                                         dropout=self.dropout, layer_name='dense_block_%d' % b, normlization='bn'))
             if b < self.num_blocks - 1:
-                self.model.append(DenseBlock(self.model[-1].output_shape, True, None, None, self.dropout,
-                                             layer_name='dense_block_%d' % b))
+                self.model.append(DenseBlock(self.model.output_shape, True, None, None, self.dropout,
+                                             layer_name='dense_block_%d' % b, normlization='bn'))
 
-        self.model.append(BatchNormLayer(self.model[-1].output_shape, layer_name='post_bn'))
-        shape = self.model[-1].output_shape
+        self.model.append(BatchNormLayer(self.model.output_shape, activation='linear', layer_name='post_bn'))
+        shape = self.model.output_shape
         self.model.append(PoolingLayer(shape, (shape[2], shape[3]), stride=(1, 1), mode='average_exc_pad',
                                        layer_name='post_pool'))
-        self.model.append(FullyConnectedLayer(self.model[-1].output_shape, self.output_shape,
-                                              He_init='normal', He_init_gain='softmax', layer_name='softmax',
-                                              activation='softmax', target='dev1'))
+        self.model.append(ActivationLayer(self.model.output_shape, 'relu', 'post_bn_relu'))
+        self.model.append(FullyConnectedLayer(self.model.output_shape, self.output_shape, He_init='normal',
+                                              He_init_gain='softmax', layer_name='softmax', activation='softmax'))
+
         super(DenseNet, self).get_all_params()
         super(DenseNet, self).get_trainable()
         super(DenseNet, self).get_regularizable()
+        super(DenseNet, self).show()
 
-    def inference(self, input, training=False):
-        super(DenseNet, self).set_training_status(training)
-        return super(DenseNet, self).inference(input)
+    def inference(self, input):
+        return self.model(input)
 
 
 class DataManager2(DataManager):
     def __init__(self, config_file, placeholders):
         super(DataManager2, self).__init__(config_file, placeholders)
+        self.load_data()
 
     def load_data(self):
         X_train, y_train, _, _ = read_data.load_dataset(self.path)
